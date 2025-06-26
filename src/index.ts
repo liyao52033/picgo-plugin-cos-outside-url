@@ -1,5 +1,6 @@
 import { PicGo } from 'picgo'
 import { IPluginConfig, ITcyunConfig } from 'picgo/dist/utils/interfaces'
+import { IImgInfo } from 'picgo/dist/types'
 import { Config, ListItem, Processors, getCosPutObjectParams, getBodyFromImage } from './config'
 
 const processors = new Processors()
@@ -10,9 +11,10 @@ const handle = (ctx: PicGo): void => {
   expireSeconds = parseInt(String(expireSeconds))
   if (expireSeconds <= 0) {
     expireSeconds = 9_000_000_000 - parseInt(String(Date.now() / 1000))
+  } else {
+    ctx.log.info(`OSS外链: expireSeconds=${expireSeconds}秒`)
   }
-  ctx.log.info(`OSS外链: expireSeconds=${expireSeconds}秒`)
-
+  
   const uploaderKey = ctx.getConfig<string>('picBed.current')
   const processor = processors.select(
     uploaderKey === 'cos-upload' ? 'tcyun' : uploaderKey
@@ -90,32 +92,71 @@ const customAfterUpload = async (ctx: PicGo): Promise<void> => {
         continue
       }
       await new Promise((resolve, reject) => {
-        cos.putObject({ 
+        cos.putObject({
           Bucket: putParams.Bucket,
           Region: putParams.Region,
           Key: putParams.Key,
           Body: body,
-          ContentDisposition: 'attachment' 
-         }
-        , (err: any, data: any) => {
-          if (err) {
-            ctx.log.warn('COS putObject 上传失败: ' + err.message)
-            ctx.emit('notification', {
-              title: 'COS上传失败',
-              body: err.message || String(err),
-              text: ''
-            })
-            reject(err)
-          } else {
-             // 合并外链处理逻辑
-            handle(ctx)
-            resolve(data)
-          }
-        })
+          ContentDisposition: 'attachment'
+        }
+          , (err: any, data: any) => {
+            if (err) {
+              ctx.log.warn('COS putObject 上传失败: ' + err.message)
+              ctx.emit('notification', {
+                title: 'COS上传失败',
+                body: err.message || String(err),
+                text: ''
+              })
+              reject(err)
+            } else {
+              // 合并外链处理逻辑
+              if (data && data.Location) {
+                img.imgUrl = 'https://' + data.Location
+              }
+              handle(ctx)
+              resolve(data)
+            }
+          })
       })
     } catch (e: any) {
       ctx.log.warn('COS putObject 异常: ' + (e && e.message ? e.message : String(e)))
     }
+  }
+}
+
+// 删除腾讯云COS图片
+async function deleteCosImage(ctx: PicGo, img: IImgInfo | IImgInfo[]) {
+  const imgs = Array.isArray(img) ? img : [img]
+  try {
+    const config = ctx.getConfig<ITcyunConfig>('picBed.tcyun')
+    if (!config) return
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const COS = require('cos-nodejs-sdk-v5')
+    const cos = new COS({
+      SecretId: config.secretId,
+      SecretKey: config.secretKey,
+      Domain: config.customUrl ?? ''
+    })
+    for (const item of imgs) {
+      let key = (config.path ?? '') + item.fileName
+      await new Promise((resolve, reject) => {
+        cos.deleteObject({
+          Bucket: config.bucket,
+          Region: config.area,
+          Key: key
+        }, (err: any, data: any) => {
+          if (err) {
+            ctx.log.warn('COS deleteObject 删除失败: ' + err.message)
+            reject(err)
+          } else {
+            ctx.log.info('COS deleteObject 删除成功: ' + key)
+            resolve(data)
+          }
+        })
+      })
+    }
+  } catch (e: any) {
+    ctx.log.warn('COS deleteObject 异常: ' + (e && e.message ? e.message : String(e)))
   }
 }
 
@@ -124,15 +165,20 @@ export = (ctx: PicGo) => {
     ctx.helper.uploader.register('cos-upload', {
       handle: customAfterUpload,
       name: 'COS自定义上传',
-    //  config
     })
-    
-  // ctx.helper.afterUploadPlugins.register('oss-outside-url', {
-  //   handle,
-  //   name: 'OSS外链',
-  //   config
-  // })
-  
+
+    // 监听 PicGo 删除图片事件
+    ctx.on('remove', async (img: any) => {
+      await deleteCosImage(ctx, img)
+    })
+
+    // if (!ctx.helper.afterUploadPlugins.get('oss-outside-url')) {
+    //   ctx.helper.afterUploadPlugins.register('oss-outside-url', {
+    //     handle,
+    //     name: 'OSS外链',
+    //     config
+    //   })
+    // }
   }
   return {
     register,

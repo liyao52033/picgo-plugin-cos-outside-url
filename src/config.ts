@@ -126,8 +126,6 @@ export function getBodyFromImage(img: IImgInfo, ctx: PicGo): Buffer | null {
   }
 }
 
-
-
 export function getCosPutObjectParams(ctx: PicGo, img: IImgInfo, sign: boolean, expireSeconds: number) {
   const config = ctx.getConfig<ITcyunConfig>('picBed.tcyun')
   const key = (config.path ?? '') + img.fileName
