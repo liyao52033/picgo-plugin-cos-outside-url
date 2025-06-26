@@ -1,7 +1,5 @@
 ## picgo-plugin-cos-url
 
-
-
 A PicGo plugin for cos private resource url.
 
 将COS的私有资源链接转成外链的PicGo插件，支持阿里云OSS、腾讯云COS、七牛云Kodo
@@ -18,13 +16,16 @@ A PicGo plugin for cos private resource url.
 
 过期时间设置为1个小时：`expireSeconds=3600`
 
+开启腾讯云签名选择`开启`，否则选择`关闭`
+
 ---
 
 ## 修改配置参数后生效
 
-![配置](https://raw.githubusercontent.com/caohongliang92/picgo-plugin-oss-outside-url/master/images/config.png)
+![配置](https://img.xiaoying.org.cn/img/20250626222527405.png)
 
 expireSeconds，过期秒数，默认0（永久）
+sign，是否开启腾讯云签名，默认关闭
 
 ---
 ### 版权声明

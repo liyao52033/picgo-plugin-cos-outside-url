@@ -3,11 +3,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Processors = exports.QiniuProcessor = exports.TencentProcessor = exports.AliyunProcessor = void 0;
+exports.getCosPutObjectParams = exports.getBodyFromImage = exports.Processors = exports.QiniuProcessor = exports.TencentProcessor = exports.AliyunProcessor = void 0;
 const qiniu_1 = __importDefault(require("qiniu"));
 const ali_oss_1 = __importDefault(require("ali-oss"));
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const COS = require('cos-nodejs-sdk-v5');
+const cos_nodejs_sdk_v5_1 = __importDefault(require("cos-nodejs-sdk-v5"));
 class AliyunProcessor {
     constructor() {
         this.key = 'aliyun';
@@ -46,36 +45,29 @@ class TencentProcessor {
         this.key = 'tcyun';
         this.name = '腾讯云COS';
     }
-    process(ctx, img, expireSeconds) {
+    process(ctx, img, expireSeconds, sign) {
         var _a;
         const config = ctx.getConfig('picBed.tcyun');
-        const cos = new COS({
+        const cos = new cos_nodejs_sdk_v5_1.default({
             SecretId: config.secretId,
             SecretKey: config.secretKey,
-            // 是否自定义域名
-            Domain: config.customUrl ? config.customUrl : ''
+            Domain: (_a = config.customUrl) !== null && _a !== void 0 ? _a : ''
         });
-        const key = (config.path ? config.path : '') + img.fileName;
-        // 去掉问号
-        const queryStr = ((_a = config.path) === null || _a === void 0 ? void 0 : _a.startsWith('?')) ? config.path.substring(1) : config.path;
-        const query = new Map(queryStr.split('&').map(value => {
-            const arr = value.split('=');
-            return [arr[0], arr];
-        }));
-        let url = cos.getObjectUrl({
-            Bucket: config.bucket,
-            Region: config.area,
-            Key: key,
-            Sign: true,
-            Query: query,
-            Expires: expireSeconds
-        }, (err, data) => {
-            if (err) {
-                ctx.log.warn(err.message);
-            }
-            url = data.Url;
-        });
-        return url;
+        const putParams = getCosPutObjectParams(ctx, img, sign, expireSeconds);
+        try {
+            return cos.getObjectUrl({
+                Bucket: putParams.Bucket,
+                Region: putParams.Region,
+                Key: putParams.Key,
+                Sign: putParams.Sign,
+                Query: putParams.Query,
+                Expires: putParams.Expires,
+            });
+        }
+        catch (err) {
+            ctx.log.warn('腾讯云COS签名URL生成异常: ' + (err && err.message ? err.message : String(err)));
+            return '';
+        }
     }
 }
 exports.TencentProcessor = TencentProcessor;
@@ -107,3 +99,37 @@ class Processors {
     }
 }
 exports.Processors = Processors;
+function getBodyFromImage(img, ctx) {
+    if (img.buffer) {
+        return img.buffer;
+    }
+    if (img.base64Image) {
+        try {
+            return Buffer.from(img.base64Image, 'base64');
+        }
+        catch (e) {
+            ctx.log.warn(`base64解码失败: ${e.message}`);
+        }
+    }
+}
+exports.getBodyFromImage = getBodyFromImage;
+function getCosPutObjectParams(ctx, img, sign, expireSeconds) {
+    var _a, _b;
+    const config = ctx.getConfig('picBed.tcyun');
+    const key = ((_a = config.path) !== null && _a !== void 0 ? _a : '') + img.fileName;
+    const queryStr = ((_b = config.path) === null || _b === void 0 ? void 0 : _b.startsWith('?')) ? config.path.substring(1) : config.path;
+    const query = new Map(queryStr.split('&').map(value => {
+        const arr = value.split('=');
+        return [arr[0], arr];
+    }));
+    return {
+        Bucket: config.bucket,
+        Region: config.area,
+        Key: key,
+        Sign: sign,
+        Query: query,
+        Expires: expireSeconds,
+        Headers: { 'Content-Disposition': 'attachment' }
+    };
+}
+exports.getCosPutObjectParams = getCosPutObjectParams;
